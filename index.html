@@ -30,54 +30,51 @@ const API='https://api.dharun.dev/v1/bullion?utm_medium=pal-goldsmiths';
 const $=id=>document.getElementById(id);let rates={24:null,22:null,18:null},lastPayload=null;
 const inr=n=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(n);
 function num(v){if(v===null||v===undefined)return null;const n=Number(String(v).replace(/[,₹\s]/g,''));return Number.isFinite(n)&&n>0?n:null}
-function extract(data){
- // Accept common API layouts: gold["999"], purity records, and flat purity/rate fields.
- const found={24:null,22:null,18:null};
- const purityMap={'999':'24','995':'24','916':'22','750':'18','585':'18','24':'24','24k':'24','22':'22','22k':'22','18':'18','18k':'18'};
- const rateKeys=/(price|rate|per.?gram|gram|value|amount)/i;
- const per10Keys=/(per.?10.?g|10.?gram|10g|price.?10|rate.?10)/i;
- const perGramKeys=/(per.?gram|price.?gram|rate.?gram|gram)/i;
- const cleanNum=v=>{if(v===null||v===undefined||typeof v==='object')return null;const n=Number(String(v).replace(/[₹,\s]/g,''));return Number.isFinite(n)&&n>0?n:null};
- function assign(purity,obj,path){
-   const target=purityMap[String(purity||'').toLowerCase()]; if(!target)return;
-   if(obj&&typeof obj==='object'&&!Array.isArray(obj)){
-     for(const [k,v] of Object.entries(obj)){
-       const n=cleanNum(v); if(!n||!rateKeys.test(k))continue;
-       let perGram=n;
-       if(per10Keys.test(k))perGram=n/10;
-       else if(!perGramKeys.test(k) && n>50000)perGram=n/10;
-       if(perGram>100 && perGram<100000)found[target]=perGram;
-     }
-   } else {
-     const n=cleanNum(obj); if(n){const perGram=n>50000?n/10:n;if(perGram>100&&perGram<100000)found[target]=perGram;}
-   }
- }
- function walk(node,path=[],inheritedPurity=null){
-   if(!node||typeof node!=='object')return;
-   if(Array.isArray(node)){for(const item of node)walk(item,path,inheritedPurity);return;}
-   for(const [key,val] of Object.entries(node)){
-     const keyLower=String(key).toLowerCase();
-     const m=keyLower.match(/(?:^|[^0-9])(999|995|916|750|585|24k?|22k?|18k?)(?:$|[^0-9])/i);
-     const purity=m?m[1].toLowerCase():inheritedPurity;
-     if(val&&typeof val==='object'){
-       // Objects such as { purity: "916", price_per_gram: ... }
-       const explicit=val.purity??val.karat??val.carat??val.fineness??val.hallmark;
-       if(explicit!==undefined)assign(explicit,val,path.concat(key));
-       walk(val,path.concat(key),purity);
-     } else if(purity && purityMap[purity]) {
-       // Handle numeric values directly under gold["999"], gold["916"], etc.
-       assign(purity,val,path.concat(key));
-     } else if(purity && rateKeys.test(keyLower)) {
-       assign(purity,{[keyLower]:val},path.concat(key));
-     }
-   }
-   // A record can carry its purity and its price as siblings.
-   const explicit=node.purity??node.karat??node.carat??node.fineness??node.hallmark;
-   if(explicit!==undefined)assign(explicit,node,path);
- }
- walk(data);
- return found;
+
+function extract(data) {
+  const found = {24:null, 22:null, 18:null};
+
+  // Actual API response contains data.rates as an array
+  const rows = data?.rates;
+
+  if (!Array.isArray(rows)) return found;
+
+  const purityMap = {
+    "999": 24,
+    "995": 24,
+    "916": 22,
+    "750": 18
+  };
+
+  for (const row of rows) {
+    if (String(row.metal).toLowerCase() !== "gold") {
+      continue;
+    }
+
+    const target = purityMap[String(row.purity)];
+
+    if (!target) continue;
+
+    let price = Number(row.perGram);
+
+    // Fallback: convert price per 10 grams
+    if (!Number.isFinite(price) || price <= 0) {
+      const rupees = Number(row.rupees);
+      const unit = Number(row.unit);
+
+      if (Number.isFinite(rupees) && unit > 0) {
+        price = rupees / unit;
+      }
+    }
+
+    if (Number.isFinite(price) && price > 0) {
+      found[target] = price;
+    }
+  }
+
+  return found;
 }
+
 function timestamp(payload){const candidates=[payload?.data?.timestamp,payload?.data?.as_of,payload?.data?.updated_at,payload?.meta?.retrieved_at,payload?.meta?.timestamp,payload?.timestamp,payload?.updated_at];for(const v of candidates){if(v){const d=new Date(v);if(!isNaN(d))return d.toLocaleString('en-IN',{timeZone:'Asia/Kolkata',dateStyle:'medium',timeStyle:'short'});}}return 'Timestamp not supplied by data provider';}
 function render(){for(const k of [24,22,18])$(('r'+k)).textContent=rates[k]?inr(rates[k])+'/g':'Unavailable';updateCalc();}
 function updateCalc(){const k=$('purity').value,g=num($('grams').value)||0,rate=rates[k],gst=Number($('gst').value);if(!rate||g<=0){$('calc').textContent='Rate unavailable';$('calcNote').textContent='Refresh market data or enter a positive weight.';return;}const metal=rate*g,total=metal*(1+gst/100);$('calc').textContent=inr(total);$('calcNote').textContent=`${g} g × ${inr(rate)}/g`+(gst?` + ${gst}% GST estimate`:' · GST not included');}
