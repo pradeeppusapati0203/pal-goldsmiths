@@ -64,6 +64,9 @@ function extract(data){
        const explicit=val.purity??val.karat??val.carat??val.fineness??val.hallmark;
        if(explicit!==undefined)assign(explicit,val,path.concat(key));
        walk(val,path.concat(key),purity);
+     } else if(purity && purityMap[purity]) {
+       // Handle numeric values directly under gold["999"], gold["916"], etc.
+       assign(purity,val,path.concat(key));
      } else if(purity && rateKeys.test(keyLower)) {
        assign(purity,{[keyLower]:val},path.concat(key));
      }
